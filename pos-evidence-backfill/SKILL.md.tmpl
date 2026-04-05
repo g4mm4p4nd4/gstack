@@ -1,0 +1,102 @@
+---
+name: pos-evidence-backfill
+preamble-tier: 2
+version: 1.0.0
+description: |
+  Backfill missing commercialization evidence from a Portfolio OS dispatch file or
+  selection snapshot. Reads the run's missing evidence list, gathers dated sources
+  with short summaries and citations, and writes evidence_backfill.json into the
+  Portfolio OS dispatch inbox as evidence_<run_id>.json. Use when asked to "backfill
+  POS evidence", "fill missing evidence", or research the gaps in a Portfolio OS run. (gstack)
+voice-triggers:
+  - "backfill POS evidence"
+  - "fill missing evidence"
+allowed-tools:
+  - Bash
+  - Read
+  - Write
+  - Edit
+  - Glob
+  - Grep
+  - WebSearch
+---
+
+{{PREAMBLE}}
+
+{{LEARNINGS_SEARCH}}
+
+# /pos-evidence-backfill: fill missing Portfolio OS evidence
+
+Use this workflow with a Portfolio OS `dispatch_<run_id>.json` file or `selection_snapshot.json`.
+
+## Step 1: Resolve the evidence plan
+
+Start with the helper:
+
+```bash
+ARTIFACT_PATH="<dispatch-or-selection-snapshot>"
+$GSTACK_BIN/gstack-pos-artifact evidence-plan "$ARTIFACT_PATH"
+```
+
+Read the JSON output and extract:
+
+- `run_id`
+- `selection_snapshot_path`
+- `missing_evidence`
+- `evidence_backfill_path`
+
+If `missing_evidence` is empty, stop and report that there is nothing to backfill.
+
+## Step 2: Research each missing evidence item
+
+For every missing evidence item:
+
+1. Search for direct sources first
+2. Prefer official pages, primary docs, credible market sources, or directly quotable VOC sources
+3. Capture absolute dates whenever available
+4. Keep summaries short and factual
+
+Do not invent evidence. If a gap cannot be closed, keep it in the output with `status: "unresolved"`.
+
+## Step 3: Write the inbox artifact
+
+Write a JSON file to the resolved `evidence_backfill_path`.
+The canonical destination is `portfolio-os/data/dispatch/inbox/evidence_<run_id>.json`.
+
+Use this shape:
+
+```json
+{
+  "run_id": "20260405T123000Z",
+  "generated_at": "2026-04-05T12:45:00Z",
+  "source_artifact_path": "/absolute/path/to/dispatch_20260405T123000Z.json",
+  "selection_snapshot_path": "/absolute/path/to/selection_snapshot.json",
+  "evidence_backfill": [
+    {
+      "gap": "Missing VOC for creators",
+      "status": "resolved",
+      "sources": [
+        {
+          "title": "Source title",
+          "url": "https://example.com",
+          "date": "2026-03-28",
+          "summary": "Short factual summary.",
+          "citation": "Optional short quote or cite note."
+        }
+      ]
+    }
+  ]
+}
+```
+
+Create the parent directory first if needed.
+
+## Step 4: Report what changed
+
+Tell the user:
+
+- how many gaps were resolved
+- which gaps remain unresolved
+- the exact inbox file path written
+
+If any evidence is weak or indirect, say so explicitly.

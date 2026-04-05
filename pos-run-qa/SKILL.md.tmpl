@@ -1,0 +1,118 @@
+---
+name: pos-run-qa
+preamble-tier: 3
+version: 1.0.0
+description: |
+  QA a Portfolio OS commercialization run from a dispatch file or selection snapshot.
+  Resolves run_id, scaffold paths, target repo output paths, and report destinations,
+  then uses the browser workflow to test the rendered scaffold or provided app URL.
+  Writes qa_report.md, screenshots, and regression notes keyed by run_id. Use when
+  asked to "run POS QA", "QA this dispatch", "QA this selection snapshot", or verify
+  a Portfolio OS or Paperclip venture run. (gstack)
+voice-triggers:
+  - "run POS QA"
+  - "qa this dispatch"
+allowed-tools:
+  - Bash
+  - Read
+  - Write
+  - Edit
+  - Glob
+  - Grep
+  - AskUserQuestion
+  - WebSearch
+---
+
+{{PREAMBLE}}
+
+{{BROWSE_SETUP}}
+
+{{LEARNINGS_SEARCH}}
+
+# /pos-run-qa: QA a Portfolio OS run artifact
+
+Use this workflow when the input is a Portfolio OS `dispatch_<run_id>.json` file or a `selection_snapshot.json`.
+
+## Step 1: Resolve the run contract
+
+The input artifact is required. First resolve it with the helper:
+
+```bash
+ARTIFACT_PATH="<dispatch-or-selection-snapshot>"
+$GSTACK_BIN/gstack-pos-artifact qa-plan "$ARTIFACT_PATH"
+```
+
+Read the JSON output and extract at minimum:
+
+- `run_id`
+- `selection_snapshot_path`
+- `target_repo_clone_path`
+- `scaffold_dir`
+- `qa_report_path`
+- `screenshots_dir`
+- `regression_notes_path`
+- `local_html_candidates`
+
+Create the output directory before testing:
+
+```bash
+mkdir -p "$($GSTACK_BIN/gstack-pos-artifact qa-field "$ARTIFACT_PATH" screenshots_dir)"
+```
+
+## Step 2: Choose the QA target
+
+Use this priority order:
+
+1. If `local_html_candidates` is non-empty, open the best scaffold HTML file first.
+2. Otherwise, if the user supplied a Paperclip run page URL or target app URL, test that.
+3. Otherwise, STOP and ask for the URL to test.
+
+Recommendation: prefer the local scaffold HTML when it exists because it is deterministic and tied directly to the frozen run.
+
+## Step 3: Run browser QA
+
+Use the standard gstack browser cadence:
+
+1. Open the chosen page with `$B goto ...`
+2. Capture an initial screenshot
+3. Click the primary CTA and key navigation
+4. Inspect copy, forms, responsiveness, broken states, and console errors
+5. If testing an app URL, cover the critical flow tied to the run's wedge
+
+If the target is a local HTML scaffold, focus on:
+
+- messaging clarity
+- CTA visibility
+- broken layout states
+- mobile viewport sanity
+- dead links or missing assets
+
+If the target is a live Paperclip or product URL, also check:
+
+- auth gates
+- primary user journey
+- console/network failures
+
+## Step 4: Write artifacts
+
+Always write:
+
+- `qa_report.md` at the resolved `qa_report_path`
+- screenshots into the resolved `screenshots_dir`
+- `regression_notes.md` at the resolved `regression_notes_path`
+
+The report must include:
+
+- run id and source artifact path
+- target tested
+- severity-ranked findings
+- what was verified successfully
+- open risks
+- recommended next action before ship
+
+If you fixed anything during QA, include the changed files and follow-up test evidence.
+
+## Step 5: Close the loop
+
+If critical issues remain, say the run is not ship-ready and point to the report path.
+If the flow is clean, say it is ready for `/ship` and point to the saved evidence.

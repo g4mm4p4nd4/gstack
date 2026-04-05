@@ -16,6 +16,8 @@ Detailed guides for every gstack skill — philosophy, workflow, and examples.
 | [`/design-html`](#design-html) | **Design Engineer** | Generates production-quality Pretext-native HTML. Works with approved mockups, CEO plans, design reviews, or from scratch. Text reflows on resize, heights adjust to content. Smart API routing per design type. Framework detection for React/Svelte/Vue. |
 | [`/qa`](#qa) | **QA Lead** | Test your app, find bugs, fix them with atomic commits, re-verify. Auto-generates regression tests for every fix. |
 | [`/qa-only`](#qa) | **QA Reporter** | Same methodology as /qa but report only. Use when you want a pure bug report without code changes. |
+| [`/pos-run-qa`](#pos-run-qa) | **Portfolio QA Lead** | QA a Portfolio OS dispatch or selection snapshot, then write run-scoped QA evidence to the target repo or scaffold. |
+| [`/pos-evidence-backfill`](#pos-evidence-backfill) | **Evidence Researcher** | Backfill missing market or VOC evidence for a Portfolio OS run and write the inbox artifact back into portfolio-os. |
 | [`/ship`](#ship) | **Release Engineer** | Sync main, run tests, audit coverage, push, open PR. Bootstraps test frameworks if you don't have one. One command. |
 | [`/land-and-deploy`](#land-and-deploy) | **Release Engineer** | Merge the PR, wait for CI and deploy, verify production health. One command from "approved" to "verified in production." |
 | [`/canary`](#canary) | **SRE** | Post-deploy monitoring loop. Watches for console errors, performance regressions, and page failures using the browse daemon. |
@@ -609,6 +611,24 @@ Claude: [Explores 12 pages, fills 3 forms, tests 2 flows]
 ```
 
 **Testing authenticated pages:** Use `/setup-browser-cookies` first to import your real browser sessions, then `/qa` can test pages behind login.
+
+---
+
+## `/pos-run-qa`
+
+This is the Portfolio OS QA bridge.
+
+Give it a `dispatch_<run_id>.json` file or a `selection_snapshot.json`, and it resolves the run contract before touching the browser. It figures out the `run_id`, the scaffold directory, the target repo clone, and the exact output paths for `qa_report.md`, screenshots, and regression notes. If the scaffold has local HTML, it tests that first. If not, it falls back to the Paperclip run page or app URL you provide.
+
+The point is to keep QA evidence tied to the same commercialization run that produced the scaffold. The output lands in a deterministic run-scoped folder so downstream release work can reference it directly.
+
+## `/pos-evidence-backfill`
+
+This is the evidence repair loop for Portfolio OS.
+
+When a run freezes with missing market or VOC evidence, this skill reads the dispatch or selection snapshot, extracts the missing evidence list, researches each gap, and writes `evidence_<run_id>.json` into `portfolio-os/data/dispatch/inbox/`.
+
+The standard is factual, dated, and cited. If a gap cannot be closed, it stays unresolved in the output instead of getting hand-waved away.
 
 ---
 

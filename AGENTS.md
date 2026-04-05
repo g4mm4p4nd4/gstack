@@ -20,6 +20,8 @@ Skills live in `.agents/skills/`. Invoke them by name (e.g., `/office-hours`).
 | `/design-review` | Design audit + fix loop with atomic commits. |
 | `/qa` | Open a real browser, find bugs, fix them, re-verify. |
 | `/qa-only` | Same as /qa but report only — no code changes. |
+| `/pos-run-qa` | QA a Portfolio OS dispatch or selection snapshot and write run-scoped evidence files. |
+| `/pos-evidence-backfill` | Backfill missing market or VOC evidence for a Portfolio OS run. |
 | `/ship` | Run tests, review, push, open PR. One command. |
 | `/document-release` | Update all docs to match what you just shipped. |
 | `/retro` | Weekly retro with per-person breakdowns and shipping streaks. |

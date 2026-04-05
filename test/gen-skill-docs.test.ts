@@ -123,6 +123,18 @@ describe('gen-skill-docs', () => {
     }
   });
 
+  test('Portfolio OS skills contain the expected run artifact outputs', () => {
+    const qaContent = fs.readFileSync(path.join(ROOT, 'pos-run-qa', 'SKILL.md'), 'utf-8');
+    expect(qaContent).toContain('gstack-pos-artifact qa-plan');
+    expect(qaContent).toContain('qa_report.md');
+    expect(qaContent).toContain('regression_notes.md');
+
+    const evidenceContent = fs.readFileSync(path.join(ROOT, 'pos-evidence-backfill', 'SKILL.md'), 'utf-8');
+    expect(evidenceContent).toContain('gstack-pos-artifact evidence-plan');
+    expect(evidenceContent).toContain('evidence_<run_id>.json');
+    expect(evidenceContent).toContain('portfolio-os/data/dispatch/inbox');
+  });
+
   test('every generated SKILL.md has valid YAML frontmatter', () => {
     for (const skill of ALL_SKILLS) {
       const content = fs.readFileSync(path.join(ROOT, skill.dir, 'SKILL.md'), 'utf-8');
