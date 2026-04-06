@@ -82,6 +82,19 @@ cd ~/gstack && ./setup --host codex
 Skills install to `~/.codex/skills/gstack-*/`. For repo-local installs, clone
 into `.agents/skills/gstack` instead.
 
+#### Automation entrypoints
+
+gstack is the reusable skill pack in the flywheel, not the scheduler. Paperclip routines and local maintenance jobs should call stable gstack entrypoints instead of ad hoc shell:
+
+```bash
+bun run pos:qa-plan -- /path/to/dispatch_or_snapshot.json
+bun run pos:evidence-plan -- /path/to/dispatch_or_snapshot.json
+bun run automation:pos-smoke
+bun run automation:codex-install
+```
+
+This keeps the gstack side routinable without creating a second orchestration plane.
+
 #### OpenCode
 
 ```bash
