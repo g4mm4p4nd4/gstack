@@ -93,7 +93,7 @@ bun run automation:pos-smoke
 bun run automation:codex-install
 ```
 
-This keeps the gstack side routinable without creating a second orchestration plane.
+This keeps the gstack side routinable without creating a second orchestration plane. For the Portfolio OS flywheel specifically, do not register a second recurring Codex scheduler in gstack for dispatch QA or evidence backfill. Portfolio OS owns recurring truth-loop automations, and Paperclip owns recurring run-health routines after dispatch ingest.
 
 #### OpenCode
 
