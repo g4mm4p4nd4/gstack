@@ -43,45 +43,24 @@ const HOST_ARG_VAL: HostArg = (() => {
 // For single-host mode, HOST is the host. For --host all, it's set per iteration below.
 let HOST: Host = HOST_ARG_VAL === 'all' ? 'claude' : HOST_ARG_VAL;
 
+// ─── Model Overlay Selection ────────────────────────────────
+// --model is explicit. We do NOT auto-detect from host (host ≠ model).
+// Default is 'claude'. Missing overlay file → empty string (graceful).
+import { ALL_MODEL_NAMES, resolveModel, type Model } from './models';
+const MODEL_ARG = process.argv.find(a => a.startsWith('--model'));
+const MODEL_ARG_VAL: Model = (() => {
+  if (!MODEL_ARG) return 'claude';
+  const val = MODEL_ARG.includes('=') ? MODEL_ARG.split('=')[1] : process.argv[process.argv.indexOf(MODEL_ARG) + 1];
+  const resolved = resolveModel(val);
+  if (!resolved) {
+    throw new Error(`Unknown model: ${val}. Use ${ALL_MODEL_NAMES.join(', ')}, or a family variant (e.g., claude-opus-4-7, gpt-5.4-mini, o3).`);
+  }
+  return resolved;
+})();
+
 // HostPaths, HOST_PATHS, and TemplateContext imported from ./resolvers/types (line 7-8)
-
-// ─── Shared Design Constants ────────────────────────────────
-
-/** gstack's 10 AI slop anti-patterns — shared between DESIGN_METHODOLOGY and DESIGN_HARD_RULES */
-const AI_SLOP_BLACKLIST = [
-  'Purple/violet/indigo gradient backgrounds or blue-to-purple color schemes',
-  '**The 3-column feature grid:** icon-in-colored-circle + bold title + 2-line description, repeated 3x symmetrically. THE most recognizable AI layout.',
-  'Icons in colored circles as section decoration (SaaS starter template look)',
-  'Centered everything (`text-align: center` on all headings, descriptions, cards)',
-  'Uniform bubbly border-radius on every element (same large radius on everything)',
-  'Decorative blobs, floating circles, wavy SVG dividers (if a section feels empty, it needs better content, not decoration)',
-  'Emoji as design elements (rockets in headings, emoji as bullet points)',
-  'Colored left-border on cards (`border-left: 3px solid <accent>`)',
-  'Generic hero copy ("Welcome to [X]", "Unlock the power of...", "Your all-in-one solution for...")',
-  'Cookie-cutter section rhythm (hero → 3 features → testimonials → pricing → CTA, every section same height)',
-];
-
-/** OpenAI hard rejection criteria (from "Designing Delightful Frontends with GPT-5.4", Mar 2026) */
-const OPENAI_HARD_REJECTIONS = [
-  'Generic SaaS card grid as first impression',
-  'Beautiful image with weak brand',
-  'Strong headline with no clear action',
-  'Busy imagery behind text',
-  'Sections repeating same mood statement',
-  'Carousel with no narrative purpose',
-  'App UI made of stacked cards instead of layout',
-];
-
-/** OpenAI litmus checks — 7 yes/no tests for cross-model consensus scoring */
-const OPENAI_LITMUS_CHECKS = [
-  'Brand/product unmistakable in first screen?',
-  'One strong visual anchor present?',
-  'Page understandable by scanning headlines only?',
-  'Each section has one job?',
-  'Are cards actually necessary?',
-  'Does motion improve hierarchy or atmosphere?',
-  'Would design feel premium with all decorative shadows removed?',
-];
+// Design constants (AI_SLOP_BLACKLIST, OPENAI_HARD_REJECTIONS, OPENAI_LITMUS_CHECKS)
+// live in ./resolvers/constants and are consumed by resolvers directly.
 
 // ─── External Host Helpers ───────────────────────────────────
 
@@ -289,6 +268,18 @@ function transformFrontmatter(content: string, host: Host): string {
     }
   }
 
+  // Preserve additional keepFields beyond name and description
+  if (fm.keepFields) {
+    for (const field of fm.keepFields) {
+      if (field === 'name' || field === 'description') continue;
+      // Match YAML field with possible multi-line/array value (indented lines after colon)
+      const fieldMatch = frontmatter.match(new RegExp(`^${field}:(.*(?:\\n(?:[ \\t]+.+))*)`, 'm'));
+      if (fieldMatch) {
+        newFm += `${field}:${fieldMatch[1]}\n`;
+      }
+    }
+  }
+
   // Rename fields (copy values from template frontmatter with new keys)
   if (fm.renameFields) {
     for (const [oldName, newName] of Object.entries(fm.renameFields)) {
@@ -434,7 +425,11 @@ function processTemplate(tmplPath: string, host: Host = 'claude'): { outputPath:
   const tierMatch = tmplContent.match(/^preamble-tier:\s*(\d+)$/m);
   const preambleTier = tierMatch ? parseInt(tierMatch[1], 10) : undefined;
 
-  const ctx: TemplateContext = { skillName, tmplPath, benefitsFrom, host, paths: HOST_PATHS[host], preambleTier };
+  // Extract interactive flag from frontmatter (generator-only; controls plan-mode handshake inclusion)
+  const interactiveMatch = tmplContent.match(/^interactive:\s*(true|false)\s*$/m);
+  const interactive = interactiveMatch ? interactiveMatch[1] === 'true' : undefined;
+
+  const ctx: TemplateContext = { skillName, tmplPath, benefitsFrom, host, paths: HOST_PATHS[host], preambleTier, model: MODEL_ARG_VAL, interactive };
 
   // Replace placeholders (supports parameterized: {{NAME:arg1:arg2}})
   // Config-driven: suppressedResolvers return empty string for this host
@@ -507,11 +502,16 @@ for (const currentHost of hostsToRun) {
     let hasChanges = false;
     const tokenBudget: Array<{ skill: string; lines: number; tokens: number }> = [];
 
+    const currentHostConfig = getHostConfig(currentHost);
     for (const tmplPath of findTemplates()) {
-      // Skip skills listed in host config's generation.skipSkills
-      const currentHostConfig = getHostConfig(currentHost);
+      const dir = path.basename(path.dirname(tmplPath));
+
+      // includeSkills allowlist (union logic: include minus skip)
+      if (currentHostConfig.generation.includeSkills?.length) {
+        if (!currentHostConfig.generation.includeSkills.includes(dir)) continue;
+      }
+      // skipSkills denylist (subtracts from includeSkills or full set)
       if (currentHostConfig.generation.skipSkills?.length) {
-        const dir = path.basename(path.dirname(tmplPath));
         if (currentHostConfig.generation.skipSkills.includes(dir)) continue;
       }
 
@@ -537,6 +537,80 @@ for (const currentHost of hostsToRun) {
       const lines = content.split('\n').length;
       const tokens = Math.round(content.length / 4); // ~4 chars per token
       tokenBudget.push({ skill: relOutput, lines, tokens });
+
+      // Token ceiling check: warn if any generated SKILL.md exceeds ~40K tokens (160KB).
+      // The ceiling is a "watch for feature bloat" guardrail, not a hard gate. Modern
+      // flagship models have 200K-1M context windows, so 40K (4-20% of window) is fine.
+      // Prompt caching further reduces the marginal cost of larger skills. This ceiling
+      // exists to catch a runaway preamble or resolver that's grown by 10K+ tokens in
+      // a release, not to force compression on carefully-tuned big skills (ship,
+      // plan-ceo-review, office-hours all legitimately pack 25-35K tokens of behavior).
+      const TOKEN_CEILING_BYTES = 160_000;
+      if (content.length > TOKEN_CEILING_BYTES) {
+        console.warn(`⚠️  TOKEN CEILING: ${relOutput} is ${content.length} bytes (~${tokens} tokens), exceeds ${TOKEN_CEILING_BYTES} byte ceiling (~40K tokens)`);
+      }
+    }
+
+    // Generate gstack-lite and gstack-full for OpenClaw host
+    if (currentHost === 'openclaw' && !DRY_RUN) {
+      const openclawDir = path.join(ROOT, 'openclaw');
+      if (!fs.existsSync(openclawDir)) fs.mkdirSync(openclawDir, { recursive: true });
+
+      const gstackLite = `# gstack-lite Planning Discipline
+
+Injected by the orchestrator into spawned Claude Code sessions. Append to existing CLAUDE.md.
+
+## Planning Discipline
+1. Read every file you will modify. Understand existing patterns first.
+2. Before writing code, state your plan: what, why, which files, test case, risk.
+3. When ambiguous, prefer: completeness over shortcuts, existing patterns over new ones,
+   reversible choices over irreversible ones, safe defaults over clever ones.
+4. Self-review your changes before reporting done. Check for: missed files, broken
+   imports, untested paths, style inconsistencies.
+5. Report when done: what shipped, what decisions you made, anything uncertain.
+`;
+      fs.writeFileSync(path.join(openclawDir, 'gstack-lite-CLAUDE.md'), gstackLite);
+      console.log('GENERATED: openclaw/gstack-lite-CLAUDE.md');
+
+      const gstackFull = `# gstack-full Pipeline
+
+Injected by the orchestrator for complete feature builds. Append to existing CLAUDE.md.
+
+## Full Pipeline
+1. Read CLAUDE.md and understand the project context.
+2. Run /autoplan to review your approach (CEO + eng + design review pipeline).
+3. Implement the approved plan. Follow the planning discipline above.
+4. Run /ship to create a PR with tests, changelog, and version bump.
+5. Report back: PR URL, what shipped, decisions made, anything uncertain.
+
+Do not ask for human input until the PR is ready for review.
+`;
+      fs.writeFileSync(path.join(openclawDir, 'gstack-full-CLAUDE.md'), gstackFull);
+      console.log('GENERATED: openclaw/gstack-full-CLAUDE.md');
+
+      const gstackPlan = `# gstack-plan: Full Review Gauntlet
+
+Injected by the orchestrator when the user wants to plan a Claude Code project.
+Append to existing CLAUDE.md.
+
+## Planning Pipeline
+1. Read CLAUDE.md and understand the project context.
+2. Run /office-hours to produce a design doc (problem statement, premises, alternatives).
+3. Run /autoplan to review the design (CEO + eng + design + DX reviews + codex adversarial).
+4. Save the final reviewed plan to a file the orchestrator can reference later.
+   Write it to: plans/<project-slug>-plan-<date>.md in the current repo.
+   Include the design doc, all review decisions, and the implementation sequence.
+5. Report back to the orchestrator:
+   - Plan file path
+   - One-paragraph summary of what was designed and the key decisions
+   - List of accepted scope expansions (if any)
+   - Recommended next step (usually: spawn a new session with gstack-full to implement)
+
+Do not implement anything. This is planning only.
+The orchestrator will persist the plan link to its own memory/knowledge store.
+`;
+      fs.writeFileSync(path.join(openclawDir, 'gstack-plan-CLAUDE.md'), gstackPlan);
+      console.log('GENERATED: openclaw/gstack-plan-CLAUDE.md');
     }
 
     if (DRY_RUN && hasChanges) {

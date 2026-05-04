@@ -18,6 +18,8 @@ Detailed guides for every gstack skill — philosophy, workflow, and examples.
 | [`/qa-only`](#qa) | **QA Reporter** | Same methodology as /qa but report only. Use when you want a pure bug report without code changes. |
 | [`/pos-run-qa`](#pos-run-qa) | **Portfolio QA Lead** | QA a Portfolio OS dispatch or selection snapshot, then write run-scoped QA evidence to the target repo or scaffold. |
 | [`/pos-evidence-backfill`](#pos-evidence-backfill) | **Evidence Researcher** | Backfill missing market or VOC evidence for a Portfolio OS run and write the inbox artifact back into portfolio-os. |
+| [`/scrape`](#scrape) | **Browser Data Extractor** | Pull data from a web page. First call prototypes via `$B`; subsequent calls on a matching intent run a codified browser-skill in ~200ms. |
+| [`/skillify`](#skillify) | **Skill Codifier** | Walks back through your conversation, finds the last `/scrape` prototype, synthesizes script + test + fixture, runs the test, asks before committing. |
 | [`/ship`](#ship) | **Release Engineer** | Sync main, run tests, audit coverage, push, open PR. Bootstraps test frameworks if you don't have one. One command. |
 | [`/land-and-deploy`](#land-and-deploy) | **Release Engineer** | Merge the PR, wait for CI and deploy, verify production health. One command from "approved" to "verified in production." |
 | [`/canary`](#canary) | **SRE** | Post-deploy monitoring loop. Watches for console errors, performance regressions, and page failures using the browse daemon. |
@@ -27,11 +29,22 @@ Detailed guides for every gstack skill — philosophy, workflow, and examples.
 | [`/retro`](#retro) | **Eng Manager** | Team-aware weekly retro. Per-person breakdowns, shipping streaks, test health trends, growth opportunities. |
 | [`/browse`](#browse) | **QA Engineer** | Give the agent eyes. Real Chromium browser, real clicks, real screenshots. ~100ms per command. |
 | [`/setup-browser-cookies`](#setup-browser-cookies) | **Session Manager** | Import cookies from your real browser (Chrome, Arc, Brave, Edge) into the headless session. Test authenticated pages. |
-| [`/autoplan`](#autoplan) | **Review Pipeline** | One command, fully reviewed plan. Runs CEO → design → eng review automatically with encoded decision principles. Surfaces only taste decisions for your approval. |
+| [`/autoplan`](#autoplan) | **Review Pipeline** | One command, fully reviewed plan. Runs CEO → design → eng → DX review automatically with encoded decision principles. Surfaces only taste decisions for your approval. |
+| [`/plan-devex-review`](#plan-devex-review) | **DX Reviewer** | Plan-stage DX review. TTHW (time-to-hello-world), magical moments, friction points, persona traces. Three modes: Expansion, Polish, Triage. |
+| [`/devex-review`](#devex-review) | **DX Reviewer (live)** | Live developer experience audit. Walks the actual onboarding flow, measures TTHW, catches the docs lies. |
+| [`/plan-tune`](#plan-tune) | **Question Tuner** | Self-tune AskUserQuestion sensitivity per question. Mark questions as never-ask, always-ask, or only-for-one-way. |
 | [`/learn`](#learn) | **Memory** | Manage what gstack learned across sessions. Review, search, prune, and export project-specific patterns and preferences. |
+| [`/context-save`](#context-save) | **Save State** | Save working context (git state, decisions, remaining work) so any future session can resume. |
+| [`/context-restore`](#context-restore) | **Restore State** | Resume from a saved context, even across Conductor workspace handoffs. |
+| [`/health`](#health) | **Code Quality Dashboard** | Wraps type checker, linter, tests, dead code detection. Computes a weighted 0-10 score; tracks trends over time. |
+| [`/landing-report`](#landing-report) | **Ship Queue Dashboard** | Read-only snapshot of the workspace-aware ship queue. Which version slots are claimed, which sibling workspaces have WIP. |
+| [`/benchmark-models`](#benchmark-models) | **Model Benchmark** | Side-by-side cross-model benchmark for skills (Claude vs GPT vs Gemini). Latency, tokens, cost, optional LLM-judged quality. |
 | | | |
 | **Multi-AI** | | |
 | [`/codex`](#codex) | **Second Opinion** | Independent review from OpenAI Codex CLI. Three modes: code review (pass/fail gate), adversarial challenge, and open consultation with session continuity. Cross-model analysis when both `/review` and `/codex` have run. |
+| [`/pair-agent`](#pair-agent) | **Remote Agent Bridge** | Pair a remote AI agent (OpenClaw, Codex, Cursor, Hermes) with your browser. Scoped tunnel, locked allowlist, session token. |
+| [`/setup-gbrain`](#setup-gbrain) | **Memory Sync** | Set up gbrain for cross-machine session memory sync. One command from zero to live. |
+| [`/sync-gbrain`](#sync-gbrain) | **Keep Brain Current** | Refresh gbrain against this repo's code; teach the agent when to use `gbrain search`/`code-def` over Grep. Idempotent; safe to re-run. |
 | | | |
 | **Safety & Utility** | | |
 | [`/careful`](#safety--guardrails) | **Safety Guardrails** | Warns before destructive commands (rm -rf, DROP TABLE, force-push, git reset --hard). Override any warning. Common build cleanups whitelisted. |
@@ -41,6 +54,7 @@ Detailed guides for every gstack skill — philosophy, workflow, and examples.
 | [`/open-gstack-browser`](#open-gstack-browser) | **GStack Browser** | Launch GStack Browser with sidebar, anti-bot stealth, auto model routing, cookie import, and Claude Code integration. Watch every action live. |
 | [`/setup-deploy`](#setup-deploy) | **Deploy Configurator** | One-time setup for `/land-and-deploy`. Detects your platform, production URL, and deploy commands. |
 | [`/gstack-upgrade`](#gstack-upgrade) | **Self-Updater** | Upgrade gstack to the latest version. Detects global vs vendored install, syncs both, shows what changed. |
+| [`/make-pdf`](#make-pdf) | **PDF Generator** | Turn any markdown file into a publication-quality PDF. Proper margins, page numbers, cover pages, clickable TOC. |
 
 ---
 
@@ -614,24 +628,6 @@ Claude: [Explores 12 pages, fills 3 forms, tests 2 flows]
 
 ---
 
-## `/pos-run-qa`
-
-This is the Portfolio OS QA bridge.
-
-Give it a `dispatch_<run_id>.json` file or a `selection_snapshot.json`, and it resolves the run contract before touching the browser. It figures out the `run_id`, the scaffold directory, the target repo clone, and the exact output paths for `qa_report.md`, screenshots, and regression notes. If the scaffold has local HTML, it tests that first. If not, it falls back to the Paperclip run page or app URL you provide.
-
-The point is to keep QA evidence tied to the same commercialization run that produced the scaffold. The output lands in a deterministic run-scoped folder so downstream release work can reference it directly.
-
-## `/pos-evidence-backfill`
-
-This is the evidence repair loop for Portfolio OS.
-
-When a run freezes with missing market or VOC evidence, this skill reads the dispatch or selection snapshot, extracts the missing evidence list, researches each gap, and writes `evidence_<run_id>.json` into `portfolio-os/data/dispatch/inbox/`.
-
-The standard is factual, dated, and cited. If a gap cannot be closed, it stays unresolved in the output instead of getting hand-waved away.
-
----
-
 ## `/ship`
 
 This is my **release machine mode**.
@@ -982,6 +978,8 @@ This is my **co-presence mode**.
 `/browse` runs headless by default. You don't see what the agent sees. `/open-gstack-browser` changes that. It launches GStack Browser (rebranded Chromium with anti-bot stealth) controlled by Playwright, with the sidebar extension auto-loaded. You watch every action in real time.
 
 The sidebar chat is a Claude instance that controls the browser. It auto-routes to the right model: Sonnet for navigation and actions (click, goto, fill, screenshot), Opus for reading and analysis (summarize, find bugs, describe). One-click cookie import from the sidebar footer. The browser stays alive as long as the window is open... no idle timeout in headed mode. The menu bar says "GStack Browser" instead of "Chrome for Testing."
+
+The sidebar agent ships a layered prompt injection defense: a local 22MB ML classifier scans every page and tool output, a Haiku transcript check votes on the full conversation, a canary token catches session-exfil attempts, and a verdict combiner requires two classifiers to agree before blocking. A shield icon in the header shows status (green/amber/red). Details in [ARCHITECTURE.md](../ARCHITECTURE.md#prompt-injection-defense-sidebar-agent).
 
 ```
 You:   /open-gstack-browser
