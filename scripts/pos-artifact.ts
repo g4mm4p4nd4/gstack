@@ -1,9 +1,19 @@
 #!/usr/bin/env bun
 
-import { resolvePosEvidencePlan, resolvePosQaPlan } from '../lib/pos-artifacts';
+import {
+  resolvePosEvidenceBackfillArtifact,
+  resolvePosEvidencePlan,
+  resolvePosPatchPlanArtifact,
+  resolvePosQaPlan,
+  resolvePosQaVerificationArtifact,
+  writePosEvidenceBackfillArtifact,
+  writePosPatchPlanArtifact,
+  writePosQaVerificationArtifact,
+} from '../lib/pos-artifacts';
 
 function usage() {
-  console.error('Usage: bun run scripts/pos-artifact.ts <qa-plan|qa-field|evidence-plan|evidence-field> <artifact.json> [field]');
+  console.error('Usage: bun run scripts/pos-artifact.ts <qa-plan|qa-field|evidence-plan|evidence-field|evidence-hunt|build-qa|patch-plan> <artifact.json> [field]');
+  console.error('       bun run scripts/pos-artifact.ts <evidence-hunt|build-qa|patch-plan> --bundle <bundle.json> [--output <artifact.json>]');
   process.exit(1);
 }
 
@@ -21,7 +31,20 @@ function printField(plan: Record<string, unknown>, field: string) {
   console.log(String(value));
 }
 
-const [mode, artifactPath, field] = process.argv.slice(2);
+function parseArtifactArgs(args: string[]): { artifactPath: string; outputPath?: string; field?: string } {
+  if (args[0] && !args[0].startsWith('--')) {
+    return { artifactPath: args[0], field: args[1] };
+  }
+  const bundleIndex = args.indexOf('--bundle');
+  const artifactIndex = args.indexOf('--artifact');
+  const outputIndex = args.indexOf('--output');
+  const artifactPath = bundleIndex >= 0 ? args[bundleIndex + 1] : artifactIndex >= 0 ? args[artifactIndex + 1] : '';
+  const outputPath = outputIndex >= 0 ? args[outputIndex + 1] : undefined;
+  return { artifactPath, outputPath };
+}
+
+const [mode, ...rest] = process.argv.slice(2);
+const { artifactPath, outputPath, field } = parseArtifactArgs(rest);
 if (!mode || !artifactPath) usage();
 
 if (mode === 'qa-plan') {
@@ -34,6 +57,15 @@ if (mode === 'qa-plan') {
 } else if (mode === 'evidence-field') {
   if (!field) usage();
   printField(resolvePosEvidencePlan(artifactPath) as Record<string, unknown>, field);
+} else if (mode === 'evidence-hunt') {
+  const path = writePosEvidenceBackfillArtifact(artifactPath, outputPath);
+  console.log(JSON.stringify({ artifact_path: path, artifact: resolvePosEvidenceBackfillArtifact(artifactPath) }, null, 2));
+} else if (mode === 'build-qa') {
+  const path = writePosQaVerificationArtifact(artifactPath, outputPath);
+  console.log(JSON.stringify({ artifact_path: path, artifact: resolvePosQaVerificationArtifact(artifactPath) }, null, 2));
+} else if (mode === 'patch-plan') {
+  const path = writePosPatchPlanArtifact(artifactPath, outputPath);
+  console.log(JSON.stringify({ artifact_path: path, artifact: resolvePosPatchPlanArtifact(artifactPath) }, null, 2));
 } else {
   usage();
 }
