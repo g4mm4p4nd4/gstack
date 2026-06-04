@@ -17,6 +17,7 @@
     "upstream:sync": "bash scripts/sync-upstream.sh",
     "pos:qa-plan": "bun run scripts/pos-artifact.ts qa-plan",
     "pos:evidence-plan": "bun run scripts/pos-artifact.ts evidence-plan",
+    "pos:retrieval-context": "bun run scripts/pos-artifact.ts retrieval-context",
     "automation:pos-smoke": "bun test test/pos-artifact.test.ts test/gen-skill-docs.test.ts",
     "automation:codex-install": "./setup --host codex",
     "dev": "bun run browse/src/cli.ts",

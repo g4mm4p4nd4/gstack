@@ -1,0 +1,24 @@
+{
+  "issueIdentifier": "POR-2531",
+  "issueId": "2b12dc93-674a-48b8-a9eb-8794f3e8a324",
+  "runId": "394d92ee-496b-4cee-bdf2-5573c4ba9a64",
+  "repoSlug": "gstack",
+  "cwd": "/Users/mnm/Documents/Github/gstack",
+  "packProfile": "map",
+  "receiptPath": ".tmp/context-economy-canary/POR-2531-receipt.json",
+  "filesChanged": [
+    "docs/context-economy-canary-POR-2531.md",
+    ".tmp/context-economy-canary/POR-2531-receipt.json"
+  ],
+  "testsRun": [
+    {
+      "command": "bun test test/context-save-hardening.test.ts",
+      "exitCode": 0
+    },
+    {
+      "command": "node -e \"const fs=require('fs'); const p='.tmp/context-economy-canary/POR-2531-receipt.json'; const r=JSON.parse(fs.readFileSync(p,'utf8')); if (r.issueIdentifier !== 'POR-2531' || r.issueId !== '2b12dc93-674a-48b8-a9eb-8794f3e8a324' || r.runId !== '394d92ee-496b-4cee-bdf2-5573c4ba9a64' || r.repoSlug !== 'gstack' || r.cwd !== '/Users/mnm/Documents/Github/gstack' || r.packProfile !== 'map' || r.receiptPath !== p || !Array.isArray(r.filesChanged) || r.filesChanged.length === 0 || !r.testsRun.every(t => t.exitCode === 0)) process.exit(1);\"",
+      "exitCode": 0
+    }
+  ],
+  "summary": "Proved gstack context-economy dispatch using the map pack path, a repo-local documentation write, focused test execution, and a validated audit receipt."
+}

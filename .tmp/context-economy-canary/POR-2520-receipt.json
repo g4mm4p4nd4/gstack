@@ -1,0 +1,24 @@
+{
+  "issueIdentifier": "POR-2520",
+  "issueId": "9161df45-349a-472f-a946-0cd183c06806",
+  "runId": "f0e1abb0-158e-4bfd-a79a-840756dd2db1",
+  "repoSlug": "gstack",
+  "cwd": "/Users/mnm/Documents/Github/gstack",
+  "packProfile": "map",
+  "receiptPath": ".tmp/context-economy-canary/POR-2520-receipt.json",
+  "filesChanged": [
+    "lib/pos-artifacts.ts",
+    "scripts/pos-artifact.ts",
+    "test/pos-artifact.test.ts",
+    "package.json",
+    "docs/portfolio_os_retrieval_context.md",
+    ".tmp/context-economy-canary/POR-2520-receipt.json"
+  ],
+  "testsRun": [
+    {
+      "command": "bun test test/pos-artifact.test.ts",
+      "exitCode": 0
+    }
+  ],
+  "summary": "Proved gstack context-economy replay with a bounded POS retrieval-context artifact, focused passing tests, and an audit receipt created from the map pack path."
+}

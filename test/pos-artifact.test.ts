@@ -8,9 +8,11 @@ import {
   resolvePosPatchPlanArtifact,
   resolvePosQaPlan,
   resolvePosQaVerificationArtifact,
+  resolvePosRetrievalContextArtifact,
   writePosEvidenceBackfillArtifact,
   writePosPatchPlanArtifact,
   writePosQaVerificationArtifact,
+  writePosRetrievalContextArtifact,
 } from '../lib/pos-artifacts';
 
 function makeTempDir(prefix: string) {
@@ -169,5 +171,108 @@ describe('POS artifact resolver', () => {
     expect(fs.existsSync(evidencePath)).toBe(true);
     expect(fs.existsSync(qaPath)).toBe(true);
     expect(fs.existsSync(patchPath)).toBe(true);
+  });
+
+  test('Hermes task bundle produces bounded retrieval context with cited hashes and no raw vectors', () => {
+    const workspaceRoot = makeTempDir('gstack-pos-retrieval-');
+    const portfolioRoot = path.join(workspaceRoot, 'portfolio-os');
+    const targetRepo = path.join(workspaceRoot, 'fixture-target');
+    const resultRoot = path.join(portfolioRoot, 'data', 'gstack_results');
+    const packPath = path.join(portfolioRoot, 'context-packs', 'fixture-target-map.md');
+    const ledgerPath = path.join(portfolioRoot, 'data', 'paperclip-ledger', 'run.json');
+    fs.mkdirSync(path.dirname(packPath), { recursive: true });
+    fs.mkdirSync(path.dirname(ledgerPath), { recursive: true });
+    fs.mkdirSync(path.join(portfolioRoot, 'data', 'hermes_task_bundles'), { recursive: true });
+    fs.mkdirSync(targetRepo, { recursive: true });
+    fs.writeFileSync(packPath, [
+      '# fixture-target map',
+      'The validation sprint needs a buyer quote from marketing teams.',
+      'The pricing task should cite dated SaaS pricing proof.',
+    ].join('\n'), 'utf-8');
+    fs.writeFileSync(ledgerPath, JSON.stringify({
+      promptClass: 'failure_recovery',
+      blocker: 'pytest failed in tests/test_checkout.py:42',
+      receiptPath: '/tmp/receipt.json',
+    }, null, 2), 'utf-8');
+
+    const bundlePath = path.join(portfolioRoot, 'data', 'hermes_task_bundles', 'fixture-validation-sprint.json');
+    const bundle = {
+      schema_version: 'pos.hermes_task_bundle.v1',
+      run: {
+        run_id: 'fixture-validation-sprint',
+      },
+      target: {
+        repo_full_name: 'owner/fixture-target',
+        local_repo_path: targetRepo,
+        default_branch: 'main',
+      },
+      opportunity: {
+        mandate_type: 'validation_sprint',
+        niche: 'marketing teams',
+      },
+      paperclip: {
+        context_ledger: {
+          run_ledger_path: ledgerPath,
+          context_pack_refs: [
+            {
+              packPath,
+              packSha: 'declared-pack-sha',
+              freshnessStatus: 'fresh',
+            },
+          ],
+        },
+      },
+      context: {
+        packs: [
+          {
+            packPath,
+            packSha: 'declared-pack-sha',
+            freshnessStatus: 'fresh',
+          },
+        ],
+      },
+      tasks: [
+        {
+          id: 'validation-plan',
+          title: 'Create the validation sprint plan',
+          type: 'validation_plan',
+          assigned_role: 'Product Manager',
+          files_expected: ['docs/validation_plan.md'],
+        },
+        {
+          id: 'pricing',
+          title: 'Draft the pricing hypothesis',
+          type: 'pricing',
+          assigned_role: 'Finance / Pricing Strategist',
+          files_expected: ['docs/pricing.md'],
+        },
+      ],
+      evidence: {
+        missing_evidence: ['Need buyer quote from marketing teams.', 'Need dated SaaS pricing proof.'],
+      },
+      gstack: {
+        retrieval_context_path: path.join(resultRoot, 'fixture-validation-sprint.retrieval_context.json'),
+      },
+    };
+    fs.writeFileSync(bundlePath, JSON.stringify(bundle, null, 2), 'utf-8');
+
+    const artifact = resolvePosRetrievalContextArtifact(bundlePath);
+
+    expect(artifact.schema_version).toBe('gstack.pos_retrieval_context.v1');
+    expect(artifact.status).toBe('ready');
+    expect(artifact.policy.raw_vectors_included).toBe(false);
+    expect(artifact.policy.hermes_system_prompt_mutated).toBe(false);
+    expect(artifact.policy.pointer_only_context_allowed).toBe(false);
+    expect(artifact.budget.max_snippets).toBe(8);
+    expect(artifact.budget.estimated_tokens).toBeGreaterThan(0);
+    expect(artifact.snippets.length).toBeGreaterThanOrEqual(2);
+    expect(artifact.snippets.every((snippet) => snippet.source_path && snippet.score > 0 && snippet.source_hash && snippet.snippet_hash)).toBe(true);
+    expect(artifact.snippets.some((snippet) => snippet.source_path === packPath && snippet.text.includes('buyer quote'))).toBe(true);
+    expect(artifact.snippets.some((snippet) => snippet.source_path === ledgerPath && snippet.text.includes('failure_recovery'))).toBe(true);
+    expect(JSON.stringify(artifact)).not.toContain('[0.123');
+
+    const outPath = writePosRetrievalContextArtifact(bundlePath);
+    expect(outPath).toBe(bundle.gstack.retrieval_context_path);
+    expect(fs.existsSync(outPath)).toBe(true);
   });
 });

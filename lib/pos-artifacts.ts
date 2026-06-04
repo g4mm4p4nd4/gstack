@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { createHash } from 'crypto';
 
 const DEFAULT_WORKSPACE_ROOT = '/Users/mnm/Documents/Github';
 const DEFAULT_PORTFOLIO_OS_DIR = path.join(DEFAULT_WORKSPACE_ROOT, 'portfolio-os');
@@ -89,6 +90,42 @@ export interface PosPatchPlanArtifact {
   safety: JsonRecord;
   patch_sequence: JsonRecord[];
   status: 'ready_for_hermes' | 'blocked_no_tasks';
+}
+
+export interface PosRetrievalSnippet {
+  source_path: string;
+  source_kind: string;
+  source_hash: string;
+  snippet_hash: string;
+  freshness: string;
+  score: number;
+  line_start: number;
+  line_end: number;
+  text: string;
+}
+
+export interface PosRetrievalContextArtifact {
+  schema_version: 'gstack.pos_retrieval_context.v1';
+  generated_at: string;
+  input_kind: PosArtifactKind;
+  input_path: string;
+  run_id: string;
+  target_repo_full_name: string | null;
+  budget: {
+    max_snippets: number;
+    max_chars_per_snippet: number;
+    max_total_chars: number;
+    estimated_tokens: number;
+  };
+  policy: {
+    raw_vectors_included: false;
+    hermes_system_prompt_mutated: false;
+    pointer_only_context_allowed: false;
+  };
+  query_terms: string[];
+  snippets: PosRetrievalSnippet[];
+  sources_considered: JsonRecord[];
+  status: 'ready' | 'blocked_no_sources' | 'blocked_no_snippets';
 }
 
 function isRecord(value: unknown): value is JsonRecord {
@@ -258,6 +295,30 @@ function writeJsonFile(filePath: string, payload: JsonRecord): string {
   return filePath;
 }
 
+function sha256Text(value: string): string {
+  return createHash('sha256').update(value).digest('hex');
+}
+
+function sha256File(filePath: string): string {
+  const digest = createHash('sha256');
+  const handle = fs.openSync(filePath, 'r');
+  const buffer = Buffer.alloc(1024 * 1024);
+  try {
+    let bytesRead = 0;
+    do {
+      bytesRead = fs.readSync(handle, buffer, 0, buffer.length, null);
+      if (bytesRead > 0) digest.update(buffer.subarray(0, bytesRead));
+    } while (bytesRead > 0);
+  } finally {
+    fs.closeSync(handle);
+  }
+  return digest.digest('hex');
+}
+
+function estimateTokens(text: string): number {
+  return Math.ceil(text.length / 4);
+}
+
 function uniqueStrings(values: unknown[]): string[] {
   return Array.from(new Set(values.filter((value): value is string => typeof value === 'string' && value.trim().length > 0).map((value) => value.trim())));
 }
@@ -289,6 +350,176 @@ function queryFromMissingEvidence(targetRepo: string | null, missingEvidence: un
     `${item} buyer complaints forum`,
     `${item} SaaS pricing proof`,
   ]);
+}
+
+function collectRetrievalTerms(payload: JsonRecord, selectionSnapshot: JsonRecord | null): string[] {
+  const targetRepo = resolveTargetRepoFullName(payload, selectionSnapshot);
+  const terms = [
+    targetRepo?.split('/').pop(),
+    resolveMandateType(payload),
+    'promptClass',
+    'failure_recovery',
+    'blocker',
+    'receiptPath',
+    'command',
+    'exit code',
+    ...resolveTasks(payload).flatMap((task) => [asString(task.id), asString(task.title), asString(task.type)]),
+    ...uniqueStrings(resolveMissingEvidenceForArtifact(payload, selectionSnapshot)),
+    lookupNestedString(selectionSnapshot, 'launch_target', 'best_niche'),
+    lookupNestedString(selectionSnapshot, 'launch_target', 'strongest_wedge'),
+  ];
+  return uniqueStrings(terms.filter((value): value is string => Boolean(value))).slice(0, 24);
+}
+
+function jsonSourceText(record: JsonRecord): string {
+  return JSON.stringify(record, null, 2);
+}
+
+function fileFreshness(filePath: string): string {
+  try {
+    const ageHours = (Date.now() - fs.statSync(filePath).mtimeMs) / (1000 * 60 * 60);
+    return ageHours <= 24 ? 'fresh' : 'stale';
+  } catch {
+    return 'unknown';
+  }
+}
+
+function collectContextPackRefs(payload: JsonRecord): JsonRecord[] {
+  const context = isRecord(payload.context) ? payload.context : null;
+  const paperclip = isRecord(payload.paperclip) ? payload.paperclip : null;
+  const ledger = isRecord(paperclip?.context_ledger) ? paperclip.context_ledger : null;
+  const refs = [
+    ...asArray(context?.packs).filter(isRecord),
+    ...asArray(ledger?.context_pack_refs).filter(isRecord),
+  ];
+  const seen = new Set<string>();
+  return refs.filter((ref) => {
+    const key = `${asString(ref.packPath) ?? ''}:${asString(ref.packSha) ?? ''}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function candidateSourcePaths(payload: JsonRecord, artifactPath: string, workspaceRoot: string, runId: string): JsonRecord[] {
+  const gstack = isRecord(payload.gstack) ? payload.gstack : null;
+  const outputs = isRecord(payload.outputs) ? payload.outputs : null;
+  const paperclip = isRecord(payload.paperclip) ? payload.paperclip : null;
+  const ledger = isRecord(paperclip?.context_ledger) ? paperclip.context_ledger : null;
+  const contextPackRefs = collectContextPackRefs(payload)
+    .map((ref) => ({
+      kind: 'context_pack',
+      path: asString(ref.packPath),
+      freshness: asString(ref.freshnessStatus) ?? 'unknown',
+      declared_hash: asString(ref.packSha),
+    }));
+  const direct = [
+    { kind: 'input_artifact', path: artifactPath },
+    { kind: 'gstack_evidence', path: asString(gstack?.evidence_backfill_path) },
+    { kind: 'gstack_qa', path: asString(gstack?.qa_verification_path) },
+    { kind: 'gstack_patch_plan', path: asString(gstack?.patch_plan_path) },
+    { kind: 'hermes_result', path: asString(outputs?.result_path) },
+    { kind: 'hermes_execution_log', path: asString(outputs?.execution_log_path) },
+    { kind: 'paperclip_run_ledger', path: asString(ledger?.run_ledger_path) ?? asString(ledger?.context_ledger_path) },
+    { kind: 'paperclip_issue_ledger', path: asString(ledger?.issue_ledger_path) },
+  ];
+  const seen = new Set<string>();
+  return [...direct, ...contextPackRefs]
+    .filter((source) => pathExists(asString(source.path)))
+    .filter((source) => {
+      const sourcePath = asString(source.path) ?? '';
+      if (seen.has(sourcePath)) return false;
+      seen.add(sourcePath);
+      return sourcePath !== path.resolve(artifactPath) || source.kind === 'input_artifact';
+    })
+    .map((source) => ({
+      kind: String(source.kind),
+      path: path.resolve(String(source.path)),
+      freshness: asString(source.freshness) ?? fileFreshness(String(source.path)),
+      declared_hash: asString(source.declared_hash),
+    }));
+}
+
+function readBoundedSourceText(sourcePath: string): string {
+  const maxBytes = 512 * 1024;
+  const buffer = fs.readFileSync(sourcePath);
+  const bounded = buffer.length > maxBytes
+    ? Buffer.concat([buffer.subarray(0, maxBytes / 2), Buffer.from('\n\n[...bounded source omitted...]\n\n'), buffer.subarray(buffer.length - maxBytes / 2)])
+    : buffer;
+  return bounded.toString('utf-8');
+}
+
+function scoreLine(line: string, terms: string[]): number {
+  const lower = line.toLowerCase();
+  let score = 0;
+  for (const term of terms) {
+    const normalized = term.toLowerCase();
+    if (normalized.length < 3) continue;
+    if (lower.includes(normalized)) score += Math.min(5, Math.ceil(normalized.length / 8));
+  }
+  return score;
+}
+
+function boundedSnippet(lines: string[], index: number, maxChars: number): { text: string; lineStart: number; lineEnd: number } {
+  const start = Math.max(0, index - 2);
+  const end = Math.min(lines.length, index + 3);
+  let text = lines.slice(start, end).join('\n').trim();
+  if (text.length > maxChars) {
+    const head = Math.floor((maxChars - 32) / 2);
+    const tail = maxChars - 32 - head;
+    text = `${text.slice(0, head).trimEnd()}\n[...snippet bounded...]\n${text.slice(-tail).trimStart()}`;
+  }
+  return { text, lineStart: start + 1, lineEnd: end };
+}
+
+function collectSnippetsFromSource(
+  source: JsonRecord,
+  terms: string[],
+  maxCharsPerSnippet: number,
+): PosRetrievalSnippet[] {
+  const sourcePath = asString(source.path);
+  if (!sourcePath) return [];
+  const sourceText = readBoundedSourceText(sourcePath);
+  const lines = sourceText.split(/\r?\n/);
+  const sourceHash = sha256File(sourcePath);
+  const candidates = lines
+    .map((line, index) => ({ index, score: scoreLine(line, terms) }))
+    .filter((candidate) => candidate.score > 0)
+    .sort((left, right) => right.score - left.score || left.index - right.index);
+  const selected: PosRetrievalSnippet[] = [];
+  const occupied = new Set<number>();
+  for (const candidate of candidates) {
+    if (selected.length >= 4) break;
+    if (occupied.has(candidate.index)) continue;
+    const snippet = boundedSnippet(lines, candidate.index, maxCharsPerSnippet);
+    for (let line = snippet.lineStart; line <= snippet.lineEnd; line += 1) occupied.add(line - 1);
+    selected.push({
+      source_path: sourcePath,
+      source_kind: String(source.kind ?? 'unknown'),
+      source_hash: sourceHash,
+      snippet_hash: sha256Text(snippet.text),
+      freshness: String(source.freshness ?? fileFreshness(sourcePath)),
+      score: candidate.score,
+      line_start: snippet.lineStart,
+      line_end: snippet.lineEnd,
+      text: snippet.text,
+    });
+  }
+  if (selected.length === 0 && source.kind === 'input_artifact') {
+    const snippet = boundedSnippet(lines, 0, maxCharsPerSnippet);
+    selected.push({
+      source_path: sourcePath,
+      source_kind: String(source.kind),
+      source_hash: sourceHash,
+      snippet_hash: sha256Text(snippet.text),
+      freshness: String(source.freshness ?? fileFreshness(sourcePath)),
+      score: 1,
+      line_start: snippet.lineStart,
+      line_end: snippet.lineEnd,
+      text: snippet.text,
+    });
+  }
+  return selected;
 }
 
 export function loadPosArtifact(artifactPath: string): PosArtifact {
@@ -435,6 +666,61 @@ export function resolvePosPatchPlanArtifact(artifactPath: string): PosPatchPlanA
   };
 }
 
+export function resolvePosRetrievalContextArtifact(artifactPath: string): PosRetrievalContextArtifact {
+  const artifact = loadPosArtifact(artifactPath);
+  const runId = resolveRunId(artifact.payload, artifact.selectionSnapshot);
+  const workspaceRoot = resolveWorkspaceRoot(artifact.payload, artifact.artifactPath);
+  const maxSnippets = 8;
+  const maxCharsPerSnippet = 700;
+  const maxTotalChars = 6000;
+  const queryTerms = collectRetrievalTerms(artifact.payload, artifact.selectionSnapshot);
+  const sources = candidateSourcePaths(artifact.payload, artifact.artifactPath, workspaceRoot, runId);
+  const sourcesConsidered = sources.map((source) => {
+    const sourcePath = asString(source.path);
+    return {
+      kind: source.kind,
+      path: sourcePath,
+      hash: sourcePath && fs.existsSync(sourcePath) ? sha256File(sourcePath) : '',
+      declared_hash: source.declared_hash,
+      freshness: source.freshness,
+    };
+  });
+  const ranked = sources
+    .flatMap((source) => collectSnippetsFromSource(source, queryTerms, maxCharsPerSnippet))
+    .sort((left, right) => right.score - left.score || left.source_path.localeCompare(right.source_path));
+  const snippets: PosRetrievalSnippet[] = [];
+  let totalChars = 0;
+  for (const snippet of ranked) {
+    if (snippets.length >= maxSnippets) break;
+    if (totalChars + snippet.text.length > maxTotalChars && snippets.length > 0) continue;
+    snippets.push(snippet);
+    totalChars += snippet.text.length;
+  }
+  return {
+    schema_version: 'gstack.pos_retrieval_context.v1',
+    generated_at: nowIso(),
+    input_kind: artifact.kind,
+    input_path: artifact.artifactPath,
+    run_id: runId,
+    target_repo_full_name: resolveTargetRepoFullName(artifact.payload, artifact.selectionSnapshot),
+    budget: {
+      max_snippets: maxSnippets,
+      max_chars_per_snippet: maxCharsPerSnippet,
+      max_total_chars: maxTotalChars,
+      estimated_tokens: estimateTokens(snippets.map((snippet) => snippet.text).join('\n\n')),
+    },
+    policy: {
+      raw_vectors_included: false,
+      hermes_system_prompt_mutated: false,
+      pointer_only_context_allowed: false,
+    },
+    query_terms: queryTerms,
+    snippets,
+    sources_considered: sourcesConsidered,
+    status: sources.length === 0 ? 'blocked_no_sources' : snippets.length > 0 ? 'ready' : 'blocked_no_snippets',
+  };
+}
+
 export function writePosEvidenceBackfillArtifact(artifactPath: string, outputPath?: string): string {
   const artifact = loadPosArtifact(artifactPath);
   const runId = resolveRunId(artifact.payload, artifact.selectionSnapshot);
@@ -457,4 +743,12 @@ export function writePosPatchPlanArtifact(artifactPath: string, outputPath?: str
   const workspaceRoot = resolveWorkspaceRoot(artifact.payload, artifact.artifactPath);
   const out = outputPath ?? resolveGstackOutputPath(artifact.payload, workspaceRoot, runId, 'patch_plan_path', 'patch_plan');
   return writeJsonFile(out, resolvePosPatchPlanArtifact(artifactPath) as unknown as JsonRecord);
+}
+
+export function writePosRetrievalContextArtifact(artifactPath: string, outputPath?: string): string {
+  const artifact = loadPosArtifact(artifactPath);
+  const runId = resolveRunId(artifact.payload, artifact.selectionSnapshot);
+  const workspaceRoot = resolveWorkspaceRoot(artifact.payload, artifact.artifactPath);
+  const out = outputPath ?? resolveGstackOutputPath(artifact.payload, workspaceRoot, runId, 'retrieval_context_path', 'retrieval_context');
+  return writeJsonFile(out, resolvePosRetrievalContextArtifact(artifactPath) as unknown as JsonRecord);
 }

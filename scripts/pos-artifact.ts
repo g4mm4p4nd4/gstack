@@ -6,14 +6,16 @@ import {
   resolvePosPatchPlanArtifact,
   resolvePosQaPlan,
   resolvePosQaVerificationArtifact,
+  resolvePosRetrievalContextArtifact,
   writePosEvidenceBackfillArtifact,
   writePosPatchPlanArtifact,
   writePosQaVerificationArtifact,
+  writePosRetrievalContextArtifact,
 } from '../lib/pos-artifacts';
 
 function usage() {
-  console.error('Usage: bun run scripts/pos-artifact.ts <qa-plan|qa-field|evidence-plan|evidence-field|evidence-hunt|build-qa|patch-plan> <artifact.json> [field]');
-  console.error('       bun run scripts/pos-artifact.ts <evidence-hunt|build-qa|patch-plan> --bundle <bundle.json> [--output <artifact.json>]');
+  console.error('Usage: bun run scripts/pos-artifact.ts <qa-plan|qa-field|evidence-plan|evidence-field|evidence-hunt|build-qa|patch-plan|retrieval-context> <artifact.json> [field]');
+  console.error('       bun run scripts/pos-artifact.ts <evidence-hunt|build-qa|patch-plan|retrieval-context> --bundle <bundle.json> [--output <artifact.json>]');
   process.exit(1);
 }
 
@@ -66,6 +68,9 @@ if (mode === 'qa-plan') {
 } else if (mode === 'patch-plan') {
   const path = writePosPatchPlanArtifact(artifactPath, outputPath);
   console.log(JSON.stringify({ artifact_path: path, artifact: resolvePosPatchPlanArtifact(artifactPath) }, null, 2));
+} else if (mode === 'retrieval-context') {
+  const path = writePosRetrievalContextArtifact(artifactPath, outputPath);
+  console.log(JSON.stringify({ artifact_path: path, artifact: resolvePosRetrievalContextArtifact(artifactPath) }, null, 2));
 } else {
   usage();
 }
