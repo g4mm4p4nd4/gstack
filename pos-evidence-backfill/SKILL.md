@@ -755,9 +755,12 @@ Read the JSON output and extract:
 - `run_id`
 - `selection_snapshot_path`
 - `missing_evidence`
+- `station_gaps`
+- `internet_pipes`
 - `evidence_backfill_path`
 
-If `missing_evidence` is empty, stop and report that there is nothing to backfill.
+If both `missing_evidence` and `station_gaps` are empty, stop and report that there is nothing to backfill.
+When `internet_pipes.readiness` is present and is not `alpha_ready` or `factory_ready`, treat the missing stations and recommendations as first-class research gaps.
 
 ## Step 2: Research each missing evidence item
 
@@ -767,6 +770,12 @@ For every missing evidence item:
 2. Prefer official pages, primary docs, credible market sources, or directly quotable VOC sources
 3. Capture absolute dates whenever available
 4. Keep summaries short and factual
+
+For every Internet Pipes station gap:
+
+1. Map the station to the proof type it needs: validation, evaluation, differentiation, visualization, or recommendation.
+2. Prefer behavior-backed sources over opinion-only sources.
+3. Capture evidence that directly closes the named station, not just generic market interest.
 
 Do not invent evidence. If a gap cannot be closed, keep it in the output with `status: "unresolved"`.
 
@@ -783,6 +792,12 @@ Use this shape:
   "generated_at": "2026-04-05T12:45:00Z",
   "source_artifact_path": "/absolute/path/to/dispatch_20260405T123000Z.json",
   "selection_snapshot_path": "/absolute/path/to/selection_snapshot.json",
+  "internet_pipes": {
+    "score": 48.25,
+    "readiness": "promising",
+    "missing_stations": ["evaluation", "visualization"],
+    "recommendations": ["Add competitive and market mechanics evidence."]
+  },
   "evidence_backfill": [
     {
       "gap": "Missing VOC for creators",
@@ -797,6 +812,13 @@ Use this shape:
         }
       ]
     }
+  ],
+  "station_backfill": [
+    {
+      "station": "evaluation",
+      "status": "resolved",
+      "sources": []
+    }
   ]
 }
 ```
@@ -808,6 +830,7 @@ Create the parent directory first if needed.
 Tell the user:
 
 - how many gaps were resolved
+- how many Internet Pipes station gaps were resolved
 - which gaps remain unresolved
 - the exact inbox file path written
 

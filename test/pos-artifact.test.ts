@@ -74,6 +74,13 @@ describe('POS artifact resolver', () => {
       frozen_bundle: {
         missing_evidence: ['Need creator VOC', 'Need dated market signal'],
       },
+      launch_target: {
+        repo: 'g4mm4p4nd4/idea-spark',
+        internet_pipes_score: 48.25,
+        internet_pipes_readiness: 'promising',
+        internet_pipes_missing_stations: ['evaluation', 'visualization'],
+        internet_pipes_recommendations: ['Add competitive and market mechanics evidence.'],
+      },
       execution_manifest: {
         repo_target: {
           target_repo_clone_path_hint: path.join(workspaceRoot, 'idea-spark'),
@@ -86,9 +93,20 @@ describe('POS artifact resolver', () => {
 
     const qaPlan = resolvePosQaPlan(snapshotPath);
     expect(qaPlan.qa_output_root).toBe(path.join(scaffoldDir, 'qa', '20260405T130000Z'));
+    expect(qaPlan.internet_pipes).toEqual({
+      score: 48.25,
+      readiness: 'promising',
+      missing_stations: ['evaluation', 'visualization'],
+      recommendations: ['Add competitive and market mechanics evidence.'],
+      source: 'selection_snapshot.launch_target',
+    });
 
     const evidencePlan = resolvePosEvidencePlan(snapshotPath);
     expect(evidencePlan.missing_evidence).toEqual(['Need creator VOC', 'Need dated market signal']);
+    expect(evidencePlan.station_gaps).toEqual([
+      'Internet Pipes station gap: evaluation',
+      'Internet Pipes station gap: visualization',
+    ]);
     expect(evidencePlan.evidence_backfill_path).toBe(
       path.join(workspaceRoot, 'portfolio-os', 'data', 'dispatch', 'inbox', 'evidence_20260405T130000Z.json'),
     );
@@ -115,6 +133,10 @@ describe('POS artifact resolver', () => {
       opportunity: {
         mandate_type: 'validation_sprint',
         niche: 'marketing teams in marketing',
+        internet_pipes_score: 63.5,
+        internet_pipes_readiness: 'promising',
+        internet_pipes_missing_stations: ['differentiation'],
+        internet_pipes_recommendations: ['Add explicit differentiation evidence from review gaps.'],
       },
       tasks: [
         {
@@ -149,18 +171,28 @@ describe('POS artifact resolver', () => {
     const evidence = resolvePosEvidenceBackfillArtifact(bundlePath);
     expect(evidence.input_kind).toBe('hermes_task_bundle');
     expect(evidence.status).toBe('ready_for_research');
-    expect(evidence.research_questions).toHaveLength(2);
+    expect(evidence.internet_pipes.readiness).toBe('promising');
+    expect(evidence.station_gaps).toEqual(['Internet Pipes station gap: differentiation']);
+    expect(evidence.research_questions).toHaveLength(4);
     expect(evidence.suggested_queries.join('\n')).toContain('buyer quotes');
+    expect(evidence.suggested_queries.join('\n')).toContain('differentiation');
 
     const qa = resolvePosQaVerificationArtifact(bundlePath);
     expect(qa.status).toBe('ready_for_qa');
     expect(qa.target_repo_clone_path).toBe(targetRepo);
     expect(qa.qa_output_root).toBe(path.join(targetRepo, '.gstack', 'pos', 'fixture-validation-sprint', 'qa'));
+    expect(qa.checks).toContainEqual(expect.objectContaining({
+      id: 'internet-pipes-completeness',
+      status: 'blocked',
+      readiness: 'promising',
+      missing_stations: ['differentiation'],
+    }));
 
     const patch = resolvePosPatchPlanArtifact(bundlePath);
     expect(patch.status).toBe('ready_for_hermes');
     expect(patch.files_expected).toEqual(['docs/business_plan.md']);
     expect(patch.patch_sequence.map((step) => step.task_id)).toEqual(['business-plan', 'qa']);
+    expect(patch.internet_pipes).toEqual(evidence.internet_pipes);
 
     const evidencePath = writePosEvidenceBackfillArtifact(bundlePath);
     const qaPath = writePosQaVerificationArtifact(bundlePath);
@@ -249,6 +281,12 @@ describe('POS artifact resolver', () => {
       ],
       evidence: {
         missing_evidence: ['Need buyer quote from marketing teams.', 'Need dated SaaS pricing proof.'],
+        internet_pipes: {
+          score: 52.25,
+          readiness: 'insufficient',
+          missing_stations: ['evaluation'],
+          recommendations: ['Add competitive and market mechanics evidence.'],
+        },
       },
       gstack: {
         retrieval_context_path: path.join(resultRoot, 'fixture-validation-sprint.retrieval_context.json'),
@@ -265,6 +303,15 @@ describe('POS artifact resolver', () => {
     expect(artifact.policy.pointer_only_context_allowed).toBe(false);
     expect(artifact.budget.max_snippets).toBe(8);
     expect(artifact.budget.estimated_tokens).toBeGreaterThan(0);
+    expect(artifact.internet_pipes).toEqual({
+      score: 52.25,
+      readiness: 'insufficient',
+      missing_stations: ['evaluation'],
+      recommendations: ['Add competitive and market mechanics evidence.'],
+      source: 'payload.evidence.internet_pipes',
+    });
+    expect(artifact.query_terms).toContain('evaluation');
+    expect(artifact.query_terms).toContain('Add competitive and market mechanics evidence.');
     expect(artifact.snippets.length).toBeGreaterThanOrEqual(2);
     expect(artifact.snippets.every((snippet) => snippet.source_path && snippet.score > 0 && snippet.source_hash && snippet.snippet_hash)).toBe(true);
     expect(artifact.snippets.some((snippet) => snippet.source_path === packPath && snippet.text.includes('buyer quote'))).toBe(true);

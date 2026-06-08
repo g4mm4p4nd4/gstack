@@ -34,6 +34,8 @@ Otherwise the commands fall back to:
 Evidence output uses `gstack.pos_evidence_backfill.v1` and carries:
 
 - missing evidence from the Hermes bundle
+- Internet Pipes station gaps as `station_gaps`
+- normalized Internet Pipes readiness in `internet_pipes`
 - research questions
 - suggested search queries
 - the Portfolio-OS write-back location for market signal CSV updates
@@ -43,6 +45,8 @@ QA output uses `gstack.pos_qa_verification.v1` and carries:
 - target repo path and branch
 - QA report and screenshot output paths
 - local HTML candidates when launch scaffolds exist
+- Internet Pipes readiness and a launch-risk check when the station score is
+  below `alpha_ready`
 - blocked status when no target surface is available
 
 Patch planning output uses `gstack.pos_patch_plan.v1` and carries:
@@ -50,7 +54,27 @@ Patch planning output uses `gstack.pos_patch_plan.v1` and carries:
 - Hermes tasks
 - expected files
 - safety policy
+- Internet Pipes readiness for Hermes and operator review
 - ordered patch sequence for the Hermes execution adapter
+
+Retrieval context output uses `gstack.pos_retrieval_context.v1` and carries the
+same `internet_pipes` block. Missing stations and recommendations are added to
+retrieval query terms so bounded context favors proof-chain gaps instead of only
+generic missing evidence.
+
+The optional normalized shape is:
+
+```json
+{
+  "internet_pipes": {
+    "score": 48.25,
+    "readiness": "promising",
+    "missing_stations": ["evaluation", "visualization"],
+    "recommendations": ["Add competitive and market mechanics evidence."],
+    "source": "selection_snapshot.launch_target"
+  }
+}
+```
 
 GStack does not mutate target repositories in this flow. It emits artifacts that
 Portfolio-OS and Hermes can inspect before any repo write occurs.

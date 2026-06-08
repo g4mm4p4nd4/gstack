@@ -816,6 +816,7 @@ Read the JSON output and extract at minimum:
 - `screenshots_dir`
 - `regression_notes_path`
 - `local_html_candidates`
+- `internet_pipes`
 
 Create the output directory before testing:
 
@@ -850,6 +851,7 @@ If the target is a local HTML scaffold, focus on:
 - broken layout states
 - mobile viewport sanity
 - dead links or missing assets
+- whether Internet Pipes station gaps are visible instead of hidden behind generic proof copy
 
 If the target is a live Paperclip or product URL, also check:
 
@@ -872,6 +874,7 @@ The report must include:
 - severity-ranked findings
 - what was verified successfully
 - open risks
+- Internet Pipes readiness, missing stations, and whether the tested surface addresses them
 - recommended next action before ship
 
 If you fixed anything during QA, include the changed files and follow-up test evidence.

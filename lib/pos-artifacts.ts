@@ -16,6 +16,14 @@ export interface PosArtifact {
   selectionSnapshot: JsonRecord | null;
 }
 
+export interface PosInternetPipesCompleteness {
+  score: number | null;
+  readiness: string | null;
+  missing_stations: string[];
+  recommendations: string[];
+  source: string | null;
+}
+
 export interface PosQaPlan {
   input_kind: PosArtifactKind;
   input_path: string;
@@ -32,6 +40,7 @@ export interface PosQaPlan {
   screenshots_dir: string;
   regression_notes_path: string;
   local_html_candidates: string[];
+  internet_pipes: PosInternetPipesCompleteness;
 }
 
 export interface PosEvidencePlan {
@@ -41,6 +50,8 @@ export interface PosEvidencePlan {
   schema_version: string | null;
   selection_snapshot_path: string | null;
   missing_evidence: unknown[];
+  station_gaps: string[];
+  internet_pipes: PosInternetPipesCompleteness;
   evidence_backfill_path: string;
 }
 
@@ -52,6 +63,8 @@ export interface PosEvidenceBackfillArtifact {
   run_id: string;
   target_repo_full_name: string | null;
   missing_evidence: unknown[];
+  station_gaps: string[];
+  internet_pipes: PosInternetPipesCompleteness;
   research_questions: string[];
   suggested_queries: string[];
   evidence_write_back_path: string;
@@ -71,6 +84,7 @@ export interface PosQaVerificationArtifact {
   qa_report_path: string;
   screenshots_dir: string;
   local_html_candidates: string[];
+  internet_pipes: PosInternetPipesCompleteness;
   checks: JsonRecord[];
   status: 'ready_for_qa' | 'blocked_no_target_surface';
 }
@@ -88,6 +102,7 @@ export interface PosPatchPlanArtifact {
   tasks: JsonRecord[];
   files_expected: string[];
   safety: JsonRecord;
+  internet_pipes: PosInternetPipesCompleteness;
   patch_sequence: JsonRecord[];
   status: 'ready_for_hermes' | 'blocked_no_tasks';
 }
@@ -111,6 +126,7 @@ export interface PosRetrievalContextArtifact {
   input_path: string;
   run_id: string;
   target_repo_full_name: string | null;
+  internet_pipes: PosInternetPipesCompleteness;
   budget: {
     max_snippets: number;
     max_chars_per_snippet: number;
@@ -136,8 +152,23 @@ function asString(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
 }
 
+function asNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value.trim());
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
 function asArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
+}
+
+function asStringArray(value: unknown): string[] {
+  if (Array.isArray(value)) return uniqueStrings(value);
+  if (typeof value !== 'string') return [];
+  return uniqueStrings(value.split(/\s*\|\s*|\s*,\s*/));
 }
 
 function pathExists(candidate: string | null): candidate is string {
@@ -280,6 +311,62 @@ function resolveMissingEvidenceForArtifact(payload: JsonRecord, selectionSnapsho
   return resolveMissingEvidence(selectionSnapshot);
 }
 
+function internetPipesFromRecord(record: unknown, source: string): PosInternetPipesCompleteness | null {
+  if (!isRecord(record)) return null;
+  const nested = isRecord(record.internet_pipes) ? record.internet_pipes : null;
+  const score = asNumber(record.internet_pipes_score) ?? asNumber(record.score) ?? asNumber(nested?.score);
+  const readiness = asString(record.internet_pipes_readiness) ?? asString(record.readiness) ?? asString(nested?.readiness);
+  const missingStations = uniqueStrings([
+    ...asStringArray(record.internet_pipes_missing_stations),
+    ...asStringArray(record.missing_stations),
+    ...asStringArray(record.missingStations),
+    ...asStringArray(nested?.missing_stations),
+    ...asStringArray(nested?.missingStations),
+  ]);
+  const recommendations = uniqueStrings([
+    ...asStringArray(record.internet_pipes_recommendations),
+    ...asStringArray(record.recommendations),
+    ...asStringArray(nested?.recommendations),
+  ]);
+  if (score === null && !readiness && missingStations.length === 0 && recommendations.length === 0) {
+    return null;
+  }
+  return {
+    score,
+    readiness,
+    missing_stations: missingStations,
+    recommendations,
+    source,
+  };
+}
+
+function resolveInternetPipesCompleteness(payload: JsonRecord, selectionSnapshot: JsonRecord | null): PosInternetPipesCompleteness {
+  const payloadPaperclip = isRecord(payload.paperclip) ? payload.paperclip : null;
+  const snapshotPaperclip = isRecord(selectionSnapshot?.paperclip) ? selectionSnapshot.paperclip : null;
+  const frozenBundle = isRecord(selectionSnapshot?.frozen_bundle) ? selectionSnapshot.frozen_bundle : null;
+  const evidence = isRecord(payload.evidence) ? payload.evidence : null;
+  const candidates: Array<[unknown, string]> = [
+    [payloadPaperclip?.dispatch_gate, 'payload.paperclip.dispatch_gate'],
+    [snapshotPaperclip?.dispatch_gate, 'selection_snapshot.paperclip.dispatch_gate'],
+    [selectionSnapshot?.launch_target, 'selection_snapshot.launch_target'],
+    [selectionSnapshot?.selected_opportunity, 'selection_snapshot.selected_opportunity'],
+    [frozenBundle?.launch_target, 'selection_snapshot.frozen_bundle.launch_target'],
+    [payload.opportunity, 'payload.opportunity'],
+    [evidence?.internet_pipes, 'payload.evidence.internet_pipes'],
+  ];
+  for (const [candidate, source] of candidates) {
+    const resolved = internetPipesFromRecord(candidate, source);
+    if (resolved) return resolved;
+  }
+  return {
+    score: null,
+    readiness: null,
+    missing_stations: [],
+    recommendations: [],
+    source: null,
+  };
+}
+
 function resolveGstackOutputPath(payload: JsonRecord, workspaceRoot: string, runId: string, key: string, suffix: string): string {
   const gstack = isRecord(payload.gstack) ? payload.gstack : null;
   return asString(gstack?.[key]) ?? path.join(workspaceRoot, 'portfolio-os', 'data', 'gstack_results', `${runId}.${suffix}.json`);
@@ -352,8 +439,50 @@ function queryFromMissingEvidence(targetRepo: string | null, missingEvidence: un
   ]);
 }
 
+function queryFromInternetPipes(targetRepo: string | null, internetPipes: PosInternetPipesCompleteness): string[] {
+  const repoTerm = targetRepo ? targetRepo.split('/').pop() : 'portfolio product';
+  return uniqueStrings([
+    ...internetPipes.missing_stations.flatMap((station) => [
+      `"${repoTerm}" internet pipes ${station} evidence`,
+      `${repoTerm} ${station} buyer proof market validation`,
+    ]),
+    ...internetPipes.recommendations.map((recommendation) => `${repoTerm} ${recommendation}`),
+  ]);
+}
+
+function internetPipesStationGaps(internetPipes: PosInternetPipesCompleteness): string[] {
+  return internetPipes.missing_stations.map((station) => `Internet Pipes station gap: ${station}`);
+}
+
+function internetPipesResearchQuestions(internetPipes: PosInternetPipesCompleteness): string[] {
+  const stationQuestions = internetPipes.missing_stations.map((station) => (
+    `What dated external proof resolves the Internet Pipes ${station} station gap?`
+  ));
+  const recommendationQuestions = internetPipes.recommendations.map((recommendation) => (
+    `What source-backed evidence satisfies this Internet Pipes recommendation: ${recommendation}?`
+  ));
+  return uniqueStrings([...stationQuestions, ...recommendationQuestions]);
+}
+
+function internetPipesCheck(internetPipes: PosInternetPipesCompleteness): JsonRecord {
+  if (!internetPipes.readiness) {
+    return { id: 'internet-pipes-completeness', status: 'not_applicable' };
+  }
+  const ready = new Set(['alpha_ready', 'factory_ready']);
+  return {
+    id: 'internet-pipes-completeness',
+    status: ready.has(internetPipes.readiness) ? 'pass' : 'blocked',
+    score: internetPipes.score,
+    readiness: internetPipes.readiness,
+    missing_stations: internetPipes.missing_stations,
+    recommendations: internetPipes.recommendations,
+    source: internetPipes.source,
+  };
+}
+
 function collectRetrievalTerms(payload: JsonRecord, selectionSnapshot: JsonRecord | null): string[] {
   const targetRepo = resolveTargetRepoFullName(payload, selectionSnapshot);
+  const internetPipes = resolveInternetPipesCompleteness(payload, selectionSnapshot);
   const terms = [
     targetRepo?.split('/').pop(),
     resolveMandateType(payload),
@@ -365,6 +494,9 @@ function collectRetrievalTerms(payload: JsonRecord, selectionSnapshot: JsonRecor
     'exit code',
     ...resolveTasks(payload).flatMap((task) => [asString(task.id), asString(task.title), asString(task.type)]),
     ...uniqueStrings(resolveMissingEvidenceForArtifact(payload, selectionSnapshot)),
+    internetPipes.readiness,
+    ...internetPipes.missing_stations,
+    ...internetPipes.recommendations,
     lookupNestedString(selectionSnapshot, 'launch_target', 'best_niche'),
     lookupNestedString(selectionSnapshot, 'launch_target', 'strongest_wedge'),
   ];
@@ -561,6 +693,7 @@ export function resolvePosQaPlan(artifactPath: string): PosQaPlan {
     screenshots_dir: path.join(qaOutputRoot, 'screenshots'),
     regression_notes_path: path.join(qaOutputRoot, 'regression_notes.md'),
     local_html_candidates: collectLocalHtmlCandidates(scaffoldDir),
+    internet_pipes: resolveInternetPipesCompleteness(artifact.payload, artifact.selectionSnapshot),
   };
 }
 
@@ -568,6 +701,7 @@ export function resolvePosEvidencePlan(artifactPath: string): PosEvidencePlan {
   const artifact = loadPosArtifact(artifactPath);
   const runId = resolveRunId(artifact.payload, artifact.selectionSnapshot);
   const workspaceRoot = resolveWorkspaceRoot(artifact.payload, artifact.artifactPath);
+  const internetPipes = resolveInternetPipesCompleteness(artifact.payload, artifact.selectionSnapshot);
   return {
     input_kind: artifact.kind,
     input_path: artifact.artifactPath,
@@ -575,6 +709,8 @@ export function resolvePosEvidencePlan(artifactPath: string): PosEvidencePlan {
     schema_version: asString(artifact.payload.schema_version),
     selection_snapshot_path: resolveSelectionSnapshotPath(artifact.payload, artifact.artifactPath, artifact.kind),
     missing_evidence: resolveMissingEvidenceForArtifact(artifact.payload, artifact.selectionSnapshot),
+    station_gaps: internetPipesStationGaps(internetPipes),
+    internet_pipes: internetPipes,
     evidence_backfill_path: path.join(
       workspaceRoot,
       'portfolio-os',
@@ -592,7 +728,11 @@ export function resolvePosEvidenceBackfillArtifact(artifactPath: string): PosEvi
   const workspaceRoot = resolveWorkspaceRoot(artifact.payload, artifact.artifactPath);
   const targetRepo = resolveTargetRepoFullName(artifact.payload, artifact.selectionSnapshot);
   const missingEvidence = resolveMissingEvidenceForArtifact(artifact.payload, artifact.selectionSnapshot);
-  const questions = uniqueStrings(missingEvidence).map((item) => `What dated external proof resolves this gap: ${item}?`);
+  const internetPipes = resolveInternetPipesCompleteness(artifact.payload, artifact.selectionSnapshot);
+  const questions = [
+    ...uniqueStrings(missingEvidence).map((item) => `What dated external proof resolves this gap: ${item}?`),
+    ...internetPipesResearchQuestions(internetPipes),
+  ];
   return {
     schema_version: 'gstack.pos_evidence_backfill.v1',
     generated_at: nowIso(),
@@ -601,10 +741,15 @@ export function resolvePosEvidenceBackfillArtifact(artifactPath: string): PosEvi
     run_id: runId,
     target_repo_full_name: targetRepo,
     missing_evidence: missingEvidence,
+    station_gaps: internetPipesStationGaps(internetPipes),
+    internet_pipes: internetPipes,
     research_questions: questions,
-    suggested_queries: queryFromMissingEvidence(targetRepo, missingEvidence),
+    suggested_queries: uniqueStrings([
+      ...queryFromMissingEvidence(targetRepo, missingEvidence),
+      ...queryFromInternetPipes(targetRepo, internetPipes),
+    ]),
     evidence_write_back_path: path.join(workspaceRoot, 'portfolio-os', 'inputs', 'market_signals', 'latest.csv'),
-    status: missingEvidence.length > 0 ? 'ready_for_research' : 'blocked_no_missing_evidence',
+    status: missingEvidence.length > 0 || internetPipes.missing_stations.length > 0 ? 'ready_for_research' : 'blocked_no_missing_evidence',
   };
 }
 
@@ -624,10 +769,12 @@ export function resolvePosQaVerificationArtifact(artifactPath: string): PosQaVer
     qa_report_path: plan.qa_report_path,
     screenshots_dir: plan.screenshots_dir,
     local_html_candidates: plan.local_html_candidates,
+    internet_pipes: plan.internet_pipes,
     checks: [
       { id: 'target-repo-present', status: pathExists(plan.target_repo_clone_path) ? 'pass' : 'blocked' },
       { id: 'local-html-candidates', status: plan.local_html_candidates.length > 0 ? 'pass' : 'not_applicable', count: plan.local_html_candidates.length },
       { id: 'qa-report-path-ready', status: 'ready', path: plan.qa_report_path },
+      internetPipesCheck(plan.internet_pipes),
     ],
     status: hasSurface ? 'ready_for_qa' : 'blocked_no_target_surface',
   };
@@ -638,6 +785,7 @@ export function resolvePosPatchPlanArtifact(artifactPath: string): PosPatchPlanA
   const runId = resolveRunId(artifact.payload, artifact.selectionSnapshot);
   const tasks = resolveTasks(artifact.payload);
   const filesExpected = collectExpectedFiles(tasks);
+  const internetPipes = resolveInternetPipesCompleteness(artifact.payload, artifact.selectionSnapshot);
   return {
     schema_version: 'gstack.pos_patch_plan.v1',
     generated_at: nowIso(),
@@ -655,6 +803,7 @@ export function resolvePosPatchPlanArtifact(artifactPath: string): PosPatchPlanA
       secrets_scan_required: true,
       forbidden_operations: ['delete_repo', 'rewrite_history', 'remove_license', 'commit_secrets'],
     },
+    internet_pipes: internetPipes,
     patch_sequence: tasks.map((task, index) => ({
       order: index + 1,
       task_id: asString(task.id),
@@ -703,6 +852,7 @@ export function resolvePosRetrievalContextArtifact(artifactPath: string): PosRet
     input_path: artifact.artifactPath,
     run_id: runId,
     target_repo_full_name: resolveTargetRepoFullName(artifact.payload, artifact.selectionSnapshot),
+    internet_pipes: resolveInternetPipesCompleteness(artifact.payload, artifact.selectionSnapshot),
     budget: {
       max_snippets: maxSnippets,
       max_chars_per_snippet: maxCharsPerSnippet,
