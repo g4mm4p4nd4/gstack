@@ -4,6 +4,7 @@ import { createHash } from 'crypto';
 
 const DEFAULT_WORKSPACE_ROOT = '/Users/mnm/Documents/Github';
 const DEFAULT_PORTFOLIO_OS_DIR = path.join(DEFAULT_WORKSPACE_ROOT, 'portfolio-os');
+const INTERNET_PIPES_DISPATCH_READY = new Set(['alpha_ready', 'factory_ready']);
 
 type JsonRecord = Record<string, unknown>;
 
@@ -86,7 +87,7 @@ export interface PosQaVerificationArtifact {
   local_html_candidates: string[];
   internet_pipes: PosInternetPipesCompleteness;
   checks: JsonRecord[];
-  status: 'ready_for_qa' | 'blocked_no_target_surface';
+  status: 'ready_for_qa' | 'blocked_no_target_surface' | 'blocked_internet_pipes_completeness';
 }
 
 export interface PosPatchPlanArtifact {
@@ -346,12 +347,20 @@ function resolveInternetPipesCompleteness(payload: JsonRecord, selectionSnapshot
   const frozenBundle = isRecord(selectionSnapshot?.frozen_bundle) ? selectionSnapshot.frozen_bundle : null;
   const evidence = isRecord(payload.evidence) ? payload.evidence : null;
   const candidates: Array<[unknown, string]> = [
+    [frozenBundle?.launch_target, 'selection_snapshot.frozen_bundle.launch_target'],
+    [frozenBundle?.business_choice, 'selection_snapshot.frozen_bundle.business_choice'],
+    [frozenBundle?.execution_candidate, 'selection_snapshot.frozen_bundle.execution_candidate'],
+    [frozenBundle?.research_target, 'selection_snapshot.frozen_bundle.research_target'],
+    [selectionSnapshot?.launch_target, 'selection_snapshot.launch_target'],
+    [selectionSnapshot?.business_choice, 'selection_snapshot.business_choice'],
+    [selectionSnapshot?.execution_candidate, 'selection_snapshot.execution_candidate'],
+    [selectionSnapshot?.research_target, 'selection_snapshot.research_target'],
+    [selectionSnapshot?.selected_opportunity, 'selection_snapshot.selected_opportunity'],
+    [payload.opportunity, 'payload.opportunity'],
+    [payload.execution_candidate, 'payload.execution_candidate'],
+    [payload.research_target, 'payload.research_target'],
     [payloadPaperclip?.dispatch_gate, 'payload.paperclip.dispatch_gate'],
     [snapshotPaperclip?.dispatch_gate, 'selection_snapshot.paperclip.dispatch_gate'],
-    [selectionSnapshot?.launch_target, 'selection_snapshot.launch_target'],
-    [selectionSnapshot?.selected_opportunity, 'selection_snapshot.selected_opportunity'],
-    [frozenBundle?.launch_target, 'selection_snapshot.frozen_bundle.launch_target'],
-    [payload.opportunity, 'payload.opportunity'],
     [evidence?.internet_pipes, 'payload.evidence.internet_pipes'],
   ];
   for (const [candidate, source] of candidates) {
@@ -468,16 +477,20 @@ function internetPipesCheck(internetPipes: PosInternetPipesCompleteness): JsonRe
   if (!internetPipes.readiness) {
     return { id: 'internet-pipes-completeness', status: 'not_applicable' };
   }
-  const ready = new Set(['alpha_ready', 'factory_ready']);
   return {
     id: 'internet-pipes-completeness',
-    status: ready.has(internetPipes.readiness) ? 'pass' : 'blocked',
+    status: isInternetPipesBlocked(internetPipes) ? 'blocked' : 'pass',
     score: internetPipes.score,
     readiness: internetPipes.readiness,
     missing_stations: internetPipes.missing_stations,
     recommendations: internetPipes.recommendations,
     source: internetPipes.source,
   };
+}
+
+function isInternetPipesBlocked(internetPipes: PosInternetPipesCompleteness): boolean {
+  if (!internetPipes.readiness) return false;
+  return !INTERNET_PIPES_DISPATCH_READY.has(internetPipes.readiness);
 }
 
 function collectRetrievalTerms(payload: JsonRecord, selectionSnapshot: JsonRecord | null): string[] {
@@ -756,6 +769,7 @@ export function resolvePosEvidenceBackfillArtifact(artifactPath: string): PosEvi
 export function resolvePosQaVerificationArtifact(artifactPath: string): PosQaVerificationArtifact {
   const plan = resolvePosQaPlan(artifactPath);
   const hasSurface = pathExists(plan.target_repo_clone_path) || plan.local_html_candidates.length > 0;
+  const internetPipesBlocked = isInternetPipesBlocked(plan.internet_pipes);
   return {
     schema_version: 'gstack.pos_qa_verification.v1',
     generated_at: nowIso(),
@@ -776,7 +790,9 @@ export function resolvePosQaVerificationArtifact(artifactPath: string): PosQaVer
       { id: 'qa-report-path-ready', status: 'ready', path: plan.qa_report_path },
       internetPipesCheck(plan.internet_pipes),
     ],
-    status: hasSurface ? 'ready_for_qa' : 'blocked_no_target_surface',
+    status: hasSurface
+      ? (internetPipesBlocked ? 'blocked_internet_pipes_completeness' : 'ready_for_qa')
+      : 'blocked_no_target_surface',
   };
 }
 

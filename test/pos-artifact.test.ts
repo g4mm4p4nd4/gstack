@@ -73,13 +73,15 @@ describe('POS artifact resolver', () => {
       run_id: '20260405T130000Z',
       frozen_bundle: {
         missing_evidence: ['Need creator VOC', 'Need dated market signal'],
+        business_choice: {
+          internet_pipes_score: 48.25,
+          internet_pipes_readiness: 'promising',
+          internet_pipes_missing_stations: ['evaluation', 'visualization'],
+          internet_pipes_recommendations: ['Add competitive and market mechanics evidence.'],
+        },
       },
       launch_target: {
         repo: 'g4mm4p4nd4/idea-spark',
-        internet_pipes_score: 48.25,
-        internet_pipes_readiness: 'promising',
-        internet_pipes_missing_stations: ['evaluation', 'visualization'],
-        internet_pipes_recommendations: ['Add competitive and market mechanics evidence.'],
       },
       execution_manifest: {
         repo_target: {
@@ -98,7 +100,7 @@ describe('POS artifact resolver', () => {
       readiness: 'promising',
       missing_stations: ['evaluation', 'visualization'],
       recommendations: ['Add competitive and market mechanics evidence.'],
-      source: 'selection_snapshot.launch_target',
+      source: 'selection_snapshot.frozen_bundle.business_choice',
     });
 
     const evidencePlan = resolvePosEvidencePlan(snapshotPath);
@@ -178,7 +180,7 @@ describe('POS artifact resolver', () => {
     expect(evidence.suggested_queries.join('\n')).toContain('differentiation');
 
     const qa = resolvePosQaVerificationArtifact(bundlePath);
-    expect(qa.status).toBe('ready_for_qa');
+    expect(qa.status).toBe('blocked_internet_pipes_completeness');
     expect(qa.target_repo_clone_path).toBe(targetRepo);
     expect(qa.qa_output_root).toBe(path.join(targetRepo, '.gstack', 'pos', 'fixture-validation-sprint', 'qa'));
     expect(qa.checks).toContainEqual(expect.objectContaining({

@@ -47,7 +47,8 @@ QA output uses `gstack.pos_qa_verification.v1` and carries:
 - local HTML candidates when launch scaffolds exist
 - Internet Pipes readiness and a launch-risk check when the station score is
   below `alpha_ready`
-- blocked status when no target surface is available
+- blocked status when no target surface is available or Internet Pipes
+  readiness has not reached `alpha_ready` or `factory_ready`
 
 Patch planning output uses `gstack.pos_patch_plan.v1` and carries:
 
@@ -71,7 +72,7 @@ The optional normalized shape is:
     "readiness": "promising",
     "missing_stations": ["evaluation", "visualization"],
     "recommendations": ["Add competitive and market mechanics evidence."],
-    "source": "selection_snapshot.launch_target"
+    "source": "selection_snapshot.frozen_bundle.business_choice"
   }
 }
 ```

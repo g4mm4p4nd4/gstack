@@ -875,6 +875,8 @@ The report must include:
 - what was verified successfully
 - open risks
 - Internet Pipes readiness, missing stations, and whether the tested surface addresses them
+- if the generated QA artifact status is `blocked_internet_pipes_completeness`,
+  browser findings may pass but the run is not launch-ready
 - recommended next action before ship
 
 If you fixed anything during QA, include the changed files and follow-up test evidence.
